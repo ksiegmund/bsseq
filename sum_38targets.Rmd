@@ -1,7 +1,7 @@
 ---
-title: "Summarize 38 Amplicons"
+title: "Summarize Methylation Panel for Cancer Research"
 author: "Kim Siegmund"
-date: "10/02/2019"
+date: "10/10/2019"
 output: html_document
 ---
 
@@ -16,10 +16,11 @@ if(!require("BSgenome.Hsapiens.UCSC.hg19"))
 library(BSgenome.Hsapiens.UCSC.hg19)
 ```
 
-# Read in the .bed file for 38 Amplicons
+# 1. Read in the .bed file for 38 Amplicons
 
+Convert the .bed file to a GRanges object.
 ```{r readBedfile}
-targets <- read.delim("~kims/bsseq/Methylation_Panel_for_Cancer_Research.results/Methylation_Panel_for_Cancer_Research.Designed.bed",skip=1, header=FALSE)
+targets <- read.delim("data/Methylation_Panel_for_Cancer_Research.Designed.bed",skip=1, header=FALSE)
 colnames(targets) <- c("chr","start","end","unkn","score","strand","mis","name")
 targets <- targets[targets$chr!="Lambda",]
 
@@ -30,8 +31,9 @@ targetgr <- GRanges(seqnames=targets$chr,strand=targets$strand,
 save(targetgr,file="data/targetgr.rda")
 ```
 
+# 2. Find sequences for Amplicons and count #CpGs/amplicon 
 
-Grab the reference sequences for the amplicons and count the number of CGs in each target region. To count the CGs, I need to use the sequences + 1 base 3' of amplicon (for possible G 3' of C in end position). 
+Grab the reference sequences for the amplicons (hg19) and count the number of CGs in each target region. To count the CGs, I need to use the sequences + 1 base 3' of amplicon (for possible G 3' of C in end position). 
 ```{r countcgs}
 vi = suppressWarnings(Views(Hsapiens,targetgr))
 targetseqs <- as(vi,"DNAStringSet")
@@ -53,11 +55,17 @@ chartable <- cbind.data.frame(region = 1:38,
                   info = str_trim(targets$name)
                   )
 #chartable
+```
+
+Let's save the summary data on these regions in an Excel file, and the target sequences for calling haplotypes later.
+```{r savefiles}
 write_xlsx(chartable,path ="data/summary-38-amplicons.xlsx")
 save(targetseqs,file="data/targetseqs.rda")
 ```
 
-Let's find the positions of the CGs in the each amplicon.
+# 3. Find the positions of CpGs in each amplicon
+
+I'll save these to a list object for later use.
 ```{r cgfind}
 cgpos <- vector(mode = "list", length = 38)
 for (i in 1:38) 
@@ -68,8 +76,8 @@ for (i in 1:38)
 save(cgpos,file="data/cgpos.rda")
 ```
 
+# 4. Number of amplicons per chromosome
 
-Let's count the number of amplicons per chromosome.
 ```{r regions}
 table(as.vector(seqnames(targetgr)))
 ```
