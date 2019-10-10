@@ -31,12 +31,17 @@ targetgr <- GRanges(seqnames=targets$chr,strand=targets$strand,
 save(targetgr,file="data/targetgr.rda")
 ```
 
-# 2. Find sequences for Amplicons and count #CpGs/amplicon 
+# 2. Find sequences for Amplicons
 
-Grab the reference sequences for the amplicons (hg19) and count the number of CGs in each target region. To count the CGs, I need to use the sequences + 1 base 3' of amplicon (for possible G 3' of C in end position). 
+Grab the reference sequences for the amplicons from hg19. Then let's report for each amplicon the number of CpGs and the GC-content. To count the CGs, I need to use the sequences + 1 base 3' of amplicon (for possible G 3' of C in end position). 
 ```{r countcgs}
 vi = suppressWarnings(Views(Hsapiens,targetgr))
 targetseqs <- as(vi,"DNAStringSet")
+
+#compute GC content from this
+basefreq=oligonucleotideFrequency(targetseqs,width=1)
+head(basefreq)
+gcratio <- rowSums(basefreq[,c("C","G")])/width(targetseqs)
 
 #to count CpGs, I need to include 1 base 3' of amplicon.
 targetgrplus1 <- targetgr
@@ -51,6 +56,7 @@ chartable <- cbind.data.frame(region = 1:38,
                   end = end(ranges(targetgr)),
                   width = width(ranges(targetgr)),
                   nCpGs = dinucleotideFrequency(targetseqsplus1)[,'CG'],
+                  gcratio = round(gcratio*100,1),
                   ampliconseq = targetseqs,
                   info = str_trim(targets$name)
                   )
