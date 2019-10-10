@@ -1,0 +1,81 @@
+---
+title: "Summarize 38 Amplicons"
+author: "Kim Siegmund"
+date: "10/02/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(GenomicAlignments)
+library(Rsamtools)
+library(tidyverse)
+library(writexl)
+if(!require("BSgenome.Hsapiens.UCSC.hg19"))
+    {BiocManager::install("BSgenome.Hsapiens.UCSC.hg19")} 
+library(BSgenome.Hsapiens.UCSC.hg19)
+```
+
+# Read in the .bed file for 38 Amplicons
+
+```{r readBedfile}
+targets <- read.delim("~kims/bsseq/Methylation_Panel_for_Cancer_Research.results/Methylation_Panel_for_Cancer_Research.Designed.bed",skip=1, header=FALSE)
+colnames(targets) <- c("chr","start","end","unkn","score","strand","mis","name")
+targets <- targets[targets$chr!="Lambda",]
+
+ir <- IRanges(start=targets$start,
+                end=targets$end)
+targetgr <- GRanges(seqnames=targets$chr,strand=targets$strand,
+                        ranges=ir)
+save(targetgr,file="data/targetgr.rda")
+```
+
+
+Grab the reference sequences for the amplicons and count the number of CGs in each target region. To count the CGs, I need to use the sequences + 1 base 3' of amplicon (for possible G 3' of C in end position). 
+```{r countcgs}
+vi = suppressWarnings(Views(Hsapiens,targetgr))
+targetseqs <- as(vi,"DNAStringSet")
+
+#to count CpGs, I need to include 1 base 3' of amplicon.
+targetgrplus1 <- targetgr
+end(targetgrplus1) <- end(targetgr) + 1
+head(cbind(end(targetgr),end(targetgrplus1)))
+vi = suppressWarnings(Views(Hsapiens,targetgrplus1))
+targetseqsplus1 <- as(vi,"DNAStringSet")
+
+chartable <- cbind.data.frame(region = 1:38,
+                  seqnames = as.vector(seqnames(targetgr)),
+                  start = start(ranges(targetgr)),
+                  end = end(ranges(targetgr)),
+                  width = width(ranges(targetgr)),
+                  nCpGs = dinucleotideFrequency(targetseqsplus1)[,'CG'],
+                  ampliconseq = targetseqs,
+                  info = str_trim(targets$name)
+                  )
+#chartable
+write_xlsx(chartable,path ="data/summary-38-amplicons.xlsx")
+save(targetseqs,file="data/targetseqs.rda")
+```
+
+Let's find the positions of the CGs in the each amplicon.
+```{r cgfind}
+cgpos <- vector(mode = "list", length = 38)
+for (i in 1:38) 
+  {ts <- targetseqsplus1[i]
+  dn <- BStringSet(toString(ts), end=2:width(ts), width=2)
+  cgpos[[i]] <- which(dn=="CG")
+}
+save(cgpos,file="data/cgpos.rda")
+```
+
+
+Let's count the number of amplicons per chromosome.
+```{r regions}
+table(as.vector(seqnames(targetgr)))
+```
+
+
+```{r sI}
+sessionInfo()
+```
+
