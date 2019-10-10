@@ -1,0 +1,103 @@
+---
+title: "Amplicon Read Depth"
+author: "Kim Siegmund"
+date: "10/10/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(GenomicAlignments)
+library(Rsamtools)
+library(tidyverse)
+library(writexl)
+```
+
+# Load the amplicon regions targeted for sequencing
+
+```{r readBedfile}
+load("data/targetgr.rda")
+```
+
+Now let's count reads that cover this region using: countOverlaps(galp,targetgr).
+
+# Darryl's BAMs:  
+
+Grab filenames.
+
+```{r bamfilenames}
+datadir=c("~kims/Google Drive File Stream/My Drive/methylation bam files 9-19")
+bamfname=dir(datadir,pattern="*\\.bam$")
+bamfiles=file.path(datadir,bamfname)
+nbam <- length(bamfiles)
+```
+
+
+Quick summary:
+```{r bamfilesummary}
+# shorten names
+sslist <- strsplit(bamfname,"Galaxy")
+nm <- map_chr(sslist, ~.x[1])
+nm <- substr(nm,6,stop = 100000L)
+
+for (i in 1:length(nm)) {
+  print(nm[i])
+  quickBamFlagSummary(bamfiles[i], main.groups.only=TRUE)
+}
+```
+
+Here are some data frames to store the counts matrix of reads covering target.
+```{r makedfs}
+cnts.df <- data.frame(matrix(NA,nrow=3,ncol=(1+length(nm))))
+colnames(cnts.df) <- c("Amplicon",nm)
+rownames(cnts.df) <- c("NReads","NOnTarget","pctOnTarget")
+
+overlaptable.df <- data.frame(matrix(NA,nrow=38,ncol=(1+length(nm))))
+colnames(overlaptable.df)=c("Amplicon",nm)
+overlaptable.df$Amplicon <- 1:38
+```
+
+I'm going to count 1st reads, which all map to +-strand. I can revisit this decision later.
+
+\it{From R documentation: Prepare the ScanBamParam object to perform the filtering, we’ll 
+get rid of the PCR or optical duplicates (flag bit 0x400 in the SAM format,
+see the SAM Spec 1 for the details), as well as reads not passing quality 
+controls (flag bit 0x200 in the SAM format).} 
+```{r scanbamflag}
+ flag1 <- scanBamFlag(isFirstMateRead=TRUE, isSecondMateRead=FALSE,
+ isDuplicate=FALSE, isNotPassingQualityControls=FALSE)
+ param1 <- ScanBamParam(flag=flag1, what="seq")
+```
+
+Now we will read *.bam file and count reads covering amplicons. 
+```{r readGAlign}
+for (i in 1:length(nm)) {
+  galr1 <- readGAlignments(bamfiles[i], use.names=TRUE, param=param1)
+  r1ontarget <- findOverlaps(ranges(galr1),ranges(targetgr),
+                           minoverlap=min(width(targetgr)))
+  if (length(table(countOverlaps(ranges(galr1),ranges(targetgr),
+                    minoverlap=min(width(targetgr))))) > 2)   print("WARNING: Read covers more than amplicon")
+
+  lgr1 <- length(galr1)
+  lr1on<- length(r1ontarget)
+  cnts.df["NReads",nm[i]] <- lgr1
+  cnts.df["NOnTarget",nm[i]] <- lr1on
+  cnts.df["pctOnTarget",nm[i]] <- lr1on/lgr1
+
+  tb <- table(subjectHits(r1ontarget))
+  overlaptable.df[names(tb),nm[i]] <- tb
+}
+```
+
+Combine 2 tables into a single file to export.
+```{r tout}
+readDepth <- rbind.DataFrame(cnts.df,overlaptable.df)
+readDepth <- cbind.data.frame(Summary = rownames(readDepth),
+                             readDepth)
+write_xlsx(readDepth,path ="data/readDepth-38-amplicons.xlsx")
+```
+
+```{r sI}
+sessionInfo()
+```
+
