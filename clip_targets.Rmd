@@ -1,0 +1,62 @@
+---
+title: "Clip 38 regions to CpGs"
+author: "Kim Siegmund"
+date: "10/14/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(GenomicAlignments)
+library(tidyverse)
+library(writexl)
+library(BSgenome.Hsapiens.UCSC.hg19)
+```
+
+# Load annotation information
+
+Load the 38 amplicons & CpG positions.
+```{r loadannot}
+load("data/cgpos.rda")
+load("data/targetgr.rda")
+load("data/targetseqs.rda")
+```
+
+# Clip the ranges to 1st and last CpG position
+Create and save new CpG positions to correspond to position in clipped target regions
+
+```{r cliprange}
+cliptargetgr <- targetgr
+firstcg <- map_int(cgpos,pluck,1)
+lastcg <- map_int(cgpos,~pluck(.x, length(.x)))
+start(cliptargetgr) <- start(targetgr) - 1 + firstcg
+end(cliptargetgr) <- start(targetgr) - 1 + lastcg
+cliptargetgr[c(1:2,38)]
+```
+
+Let's check these against the human ref genome. I'll add 1 base to see if the targets with a C in the final position is a CpG.
+```{r viewclippedtargets}
+#to view complete CpGs, I will include 1 base 3' of amplicon.
+clipgrplus1 <- cliptargetgr
+end(clipgrplus1) <- end(cliptargetgr) + 1
+vi = suppressWarnings(Views(Hsapiens,clipgrplus1))
+clipseqplus1 <- as(vi,"DNAStringSet")
+clipseqplus1
+```
+
+```{r cgposclippedgr}
+firstcg <- map_int(cgpos,pluck,1)  
+cgposafterclip <- map2(cgpos,firstcg, ~ .x -.y + 1)
+cgposafterclip[1:3]
+```
+
+Save these results for calling DNA methylation haplotypes. Save the trailing G position because the minus strand-first mate in pair reads will need to be reverse engineered.
+```{r saveme}
+save(clipgrplus1,file="data/clipgrplus1.rda")
+save(cgposafterclip,file="data/cgposafterclip.rda")
+```
+
+```{r sI}
+sessionInfo()
+```
+
