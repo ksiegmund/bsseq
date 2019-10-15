@@ -8,4 +8,5 @@ We want to call DNA methylation haplotypes from these files.
 Step 1. We begin by summarizing these 38 amplicon regions.
 
 Step 2. Clip the regions from the C of the first CpG to the G of the last CpG. 
+
 Step 3. Read a .bam file, call the haplotypes, and write to Excel file.
