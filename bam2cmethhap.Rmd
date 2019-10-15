@@ -1,0 +1,192 @@
+---
+title: "Call DNAm haplotypes"
+author: "Ks"
+date: "10/15/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load Libraries:
+```{r libraries}
+suppressMessages(library(GenomicAlignments))
+suppressMessages(library(tidyverse))
+suppressMessages(library(writexl))
+```
+
+# Load annotation
+
+Load target regions, sequences and CpG positions:
+```{r readcgpositions}
+load("data/cgposafterclip.rda")
+load("data/clipgrplus1.rda")
+```
+
+Read in .bam filenames.
+```{r bamfilenames}
+datadir=c("~kims/Google Drive File Stream/My Drive/methylation bam files 9-19")
+bamfiles=dir(datadir,pattern="*\\.bam$")
+bamfiles=file.path(datadir,bamfiles)
+whichbam <- 18
+```
+
+Shorten these filenames for Excel output.
+```{r shortenfilenames}
+sslist <- strsplit(bamfiles,c("Galaxy"))
+nm <- map_chr(sslist, ~.x[1])  
+sslist <- strsplit(nm,c("5894_"))
+snm <- map_chr(sslist, ~.x[2]) 
+```
+
+Set flags for reading in the data.
+```{r readGAlign}
+flag1 <- scanBamFlag(isFirstMateRead=TRUE, isSecondMateRead=FALSE,
+ isDuplicate=FALSE, isNotPassingQualityControls=FALSE)
+ param1 <- ScanBamParam(flag=flag1, what=c("seq","qual"))
+```
+
+```{r functions}
+# subset gal object to reads covering region
+readsonregion <- function(gaobj,region) {
+    r1 <- findOverlaps(ranges(gaobj),ranges(region),
+                          minoverlap=width(region))
+    gal.subset <- gal[queryHits(r1)]
+    gal.subset
+}    
+
+# clip all the reads to the size of my target (1st to last C(pG)).
+clipreads <- function(reads_on_ref,startpos,region){
+    clippedreads <- reads_on_ref 
+    clipped.start <- start(region) - startpos + 1
+    for (i in 1:length(reads_on_ref)){
+        clippedreads[i] <- BStringSet(toString(reads_on_ref[i]), 
+                                      start=clipped.start[i], 
+                                      width=width(region))
+    }
+    clippedreads
+}
+
+# turn these into haplotypes
+gethaps <- function(clipgal,thisregion,cpgpos,regiongr,
+                    firstmatestrand=c("+"),maxcpg=19){
+  ncpg <- length(cpgpos)
+  nreads <- length(clipgal)
+  hapmat <- data.frame(matrix(NA,nrow=nreads,ncol=maxcpg))
+  
+  if (firstmatestrand==c("+")) {
+    for (i in 1:nreads) 
+    for (j in 1:ncpg){
+      seqread <- clipgal[i]
+      hapbase <- toString(subseq(seqread,cpgpos[j],width=1))
+      hapmat[i,j] <- case_when(
+                      hapbase == "C" ~  1,
+                      hapbase == "T" ~  0
+                    )
+    }
+  } else {
+      for (i in 1:nreads) 
+      for (j in 1:ncpg){
+        seqread <- clipgal[i]
+        hapbase <- toString(subseq(seqread,cpgpos[j]+1,width=1))
+        hapmat[i,j] <- case_when(
+                      hapbase == "G" ~  1,
+                      hapbase == "A" ~  0
+                    )
+    }
+  }
+   
+  # remove haplotypes with missing data (I can't 'collapse' them)
+  if (ncpg>1) {
+    filt <- which( apply(is.na(hapmat[,c(1:ncpg)]),1,sum) > 0)
+    if (length(filt)>0)
+      hapmat <- hapmat[-filt,]
+      htype <- apply(hapmat[,(1:ncpg)],1,paste,collapse="")
+  }
+  else {
+    filt <- which(is.na(hapmat[,1]))
+    if (length(filt)>0)
+      hapmat <- hapmat[-filt,]
+    htype <- as.character(hapmat[,1])
+  }
+  datmat <- cbind.data.frame(sample = snm[whichbam],
+                             amplicon = thisregion,
+                      chr = seqnames(regiongr),
+                      start = start(regiongr),
+                      readseq = 1:nrow(hapmat),
+                      htype = htype,
+                      hapmat)
+  datmat
+}
+```
+
+Now run pipeline for a single sample.  
+```{r pipeline}
+start_time <- Sys.time()
+
+#read bam
+gal <- readGAlignments(bamfiles[whichbam], use.names=TRUE, param=param1)
+ 
+#initialize final haplotype matrix large enough to fit all haplotypes
+# max number of CpGs/amplicon is 19
+smat <- data.frame(matrix(rep(NA,25),ncol=25))
+colnames(smat) <- c("sample","amplicon","chr","start","readseq","htype",
+                    c(paste("X",1:19,sep="")))
+  
+#For each region do the following: 
+for (thisregion in 1:38) {
+   #Subset to reads that cover single region.
+  gal.sub <- readsonregion(gal,clipgrplus1[thisregion])
+    if(length(gal.sub)>0) {
+      qseqs <- mcols(gal.sub)$seq
+      # This is to get the sequences aligned to reference with D/Is
+      qseq_on_ref <- sequenceLayer(qseqs, cigar(gal.sub))
+      clipped.qseq <- clipreads(qseq_on_ref,start(gal.sub),
+                              clipgrplus1[thisregion])
+      
+      # I will pass strand information to gethaps so I 
+      # know whether to adjust the C(pG) position to the (Cp)G position. 
+      # If - strand, then use G position; + strand uses C position.
+      
+      dmat <- gethaps(clipped.qseq,
+                      thisregion,
+                      cgposafterclip[[thisregion]],
+                      clipgrplus1[thisregion],
+                firstmatestrand = as.character(runValue(strand(gal.sub[1]))))
+      smat <- rbind.data.frame(smat,dmat)
+    }
+}
+end_time <- Sys.time()
+
+end_time - start_time
+```
+ is the run time for sample 
+```{r samplename}
+snm[whichbam]
+```
+ 
+Here's the read depth for each amplicon.
+```{r amplicondepth}
+table(smat$amplicon)
+```
+
+And total read depth:
+```{r totreaddepth}
+sum(table(smat$amplicon))
+```
+
+```{r writefiles}
+tmat <- smat[!is.na(smat$chr),]
+snm2 <- paste(snm,"xlsx",sep=".")
+write_xlsx(tmat,file.path("data",snm2[whichbam]) )
+```
+
+# Excel File created:
+```{r whichfile}
+snm2[whichbam]
+```
+
+```{r sessionInfo}
+sessionInfo()
+```
