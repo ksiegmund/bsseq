@@ -29,7 +29,7 @@ Read in .bam filenames.
 datadir=c("~kims/Google Drive File Stream/My Drive/methylation bam files 9-19")
 bamfiles=dir(datadir,pattern="*\\.bam$")
 bamfiles=file.path(datadir,bamfiles)
-whichbam <- 18
+whichbam <- 16
 ```
 
 Shorten these filenames for Excel output.
@@ -121,6 +121,8 @@ gethaps <- function(clipgal,thisregion,cpgpos,regiongr,
 }
 ```
 
+# DNAm haplotype Pipeline
+
 Now run pipeline for a single sample.  
 ```{r pipeline}
 start_time <- Sys.time()
@@ -165,7 +167,9 @@ end_time - start_time
 ```{r samplename}
 snm[whichbam]
 ```
- 
+
+# Read Depths/Region
+
 Here's the read depth for each amplicon.
 ```{r amplicondepth}
 table(smat$amplicon)
