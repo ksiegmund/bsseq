@@ -10,10 +10,10 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 Load Libraries:
-```{r libraries}
-suppressMessages(library(GenomicAlignments))
-suppressMessages(library(tidyverse))
-suppressMessages(library(writexl))
+```{r libraries, message=FALSE}
+library(GenomicAlignments)
+library(tidyverse)
+library(writexl)
 ```
 
 # Load annotation
@@ -58,14 +58,27 @@ readsonregion <- function(gaobj,region) {
 
 # clip all the reads to the size of my target (1st to last C(pG)).
 clipreads <- function(reads_on_ref,startpos,region){
-    clippedreads <- reads_on_ref 
+  
     clipped.start <- start(region) - startpos + 1
-    for (i in 1:length(reads_on_ref)){
-        clippedreads[i] <- BStringSet(toString(reads_on_ref[i]), 
-                                      start=clipped.start[i], 
-                                      width=width(region))
-    }
+    clippedreads <- BStringSet(reads_on_ref, 
+                              start=clipped.start, 
+                               width=rep(width(region),
+                                         length(reads_on_ref)))
     clippedreads
+}
+
+# turn nucleotide vector into pattern of 1/0 with 1 = methylated; 0 = unmethylated
+dnamhap <- function(seqvec,cpgpos,firstmatestrand){
+          
+          if (firstmatestrand==c("+")) {
+              hapbase <- unlist(strsplit(toString(seqvec),split=""))[cpgpos]
+              hapvec <- ifelse(hapbase=="C",1,ifelse(hapbase=="T",0,NA))
+          }
+          else {
+              hapbase <- unlist(strsplit(toString(seqvec),split=""))[cpgpos+1]
+              hapvec <- ifelse(hapbase=="G",1,ifelse(hapbase=="A",0,NA))
+          }
+  hapvec
 }
 
 # turn these into haplotypes
@@ -73,29 +86,12 @@ gethaps <- function(clipgal,thisregion,cpgpos,regiongr,
                     firstmatestrand=c("+"),maxcpg=19){
   ncpg <- length(cpgpos)
   nreads <- length(clipgal)
+  #pad matrix to length of longest c haplotype (19) (improve this later)
   hapmat <- data.frame(matrix(NA,nrow=nreads,ncol=maxcpg))
   
-  if (firstmatestrand==c("+")) {
-    for (i in 1:nreads) 
-    for (j in 1:ncpg){
-      seqread <- clipgal[i]
-      hapbase <- toString(subseq(seqread,cpgpos[j],width=1))
-      hapmat[i,j] <- case_when(
-                      hapbase == "C" ~  1,
-                      hapbase == "T" ~  0
-                    )
-    }
-  } else {
-      for (i in 1:nreads) 
-      for (j in 1:ncpg){
-        seqread <- clipgal[i]
-        hapbase <- toString(subseq(seqread,cpgpos[j]+1,width=1))
-        hapmat[i,j] <- case_when(
-                      hapbase == "G" ~  1,
-                      hapbase == "A" ~  0
-                    )
-    }
-  }
+  haplst <- lapply(clipgal,dnamhap,cpgpos,firstmatestrand)
+  hapmtx <- matrix(unlist(haplst),byrow=T,ncol=ncpg)
+  hapmat[,1:ncpg] <- hapmtx
    
   # remove haplotypes with missing data (I can't 'collapse' them)
   if (ncpg>1) {
@@ -146,7 +142,7 @@ for (thisregion in 1:38) {
       qseq_on_ref <- sequenceLayer(qseqs, cigar(gal.sub))
       clipped.qseq <- clipreads(qseq_on_ref,start(gal.sub),
                               clipgrplus1[thisregion])
-      
+
       # I will pass strand information to gethaps so I 
       # know whether to adjust the C(pG) position to the (Cp)G position. 
       # If - strand, then use G position; + strand uses C position.
