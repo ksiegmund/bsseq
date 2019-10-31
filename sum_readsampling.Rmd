@@ -1,0 +1,87 @@
+---
+title: "Summarize Data By ReadDepth"
+author: "Ks"
+date: "10/30/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Create a Scatter Diagram of Unique Haps vs Read Depth
+
+We're going to sample our reads to different depths, and count the unique number of haplotypes we find for each depth. Then plot # unique haplotypes vs read depth.
+```{r libraries, message=FALSE}
+if(!require("readxl")) install.packages("readxl")
+library(tidyverse)
+library(readxl)
+```
+
+Read all Excel files into a list and count the number of reads per sample.
+```{r readxlsx}
+datadir=c("~kims/GitHub/bsseq/data/cmethhaps")
+xlsxfiles=dir(datadir,pattern="*\\.xlsx$")
+
+nxlsx <- length(xlsxfiles)
+amplst <- vector(mode = "list", length = nxlsx)
+for (i in 1:nxlsx) 
+  amplst[[i]] <- read_excel(file.path(datadir,xlsxfiles[i]))
+
+map_int(amplst,nrow)
+```
+
+Now let's subset the data to amplicon 1, get the total number of reads in amplicon 1 for each sample. 
+```{r getamplicon1}
+thisamp <- 1
+amp1lst <- vector(mode = "list", length = nxlsx)
+
+for (i in 1:nxlsx) 
+  amp1lst[[i]] <- amplst[[i]] %>%
+                    dplyr::filter(amplicon==thisamp) %>%
+                    dplyr::select(htype)
+
+readdepth <- map_int(amp1lst,nrow)
+readdepth
+```
+
+Since each sample has a different read depth, we'll compute a sample-specific vector of sampled read depths using percentiles with a step-size of 5% (i.e. 5%, 10%, 15%, ...,100%).  
+```{r sampledepths}
+depthlst <- vector(mode = "list", length = nxlsx)
+rpct <- seq(0.1:1,by=0.05)
+for (i in 1:nxlsx)   depthlst[[i]] <- floor(readdepth[i]*rpct)
+depthlst
+```
+
+Now we compute the number of unique haplotypes after we sample at random from our reads.
+```{r subsample}
+sumssample <- function(x,ssize){
+      ns <- length(ssize)
+      uhap      <- rep(NA,ns)
+      for (i in 1:ns) {
+            uhap[i] <-
+               x %>%
+                dplyr::sample_n(ssize[i]) %>%
+                dplyr::n_distinct()        
+      }
+      uhap
+}
+  
+set.seed(32)
+slst <- map2(amp1lst,depthlst,~sumssample(.x,.y))
+slst
+```
+
+Now let's plot it!
+
+```{r matplot,echo=FALSE}
+hmat <- matrix(unlist(slst),ncol=nxlsx)  
+xmat <- matrix(unlist(depthlst),ncol=nxlsx)
+matplot(xmat,hmat,
+        main=paste("Amplicon:",thisamp),
+        xlab="read depth",ylab="# unique haplotypes")
+```
+
+```{r sessionInfo}
+sessionInfo()
+```
