@@ -24,20 +24,25 @@ load("data/cgposafterclip.rda")
 load("data/clipgrplus1.rda")
 ```
 
+Filenames for this processing run.
+```{r runnames}
+#datadir=c("~kims/Google Drive File Stream/My Drive/methylation bam files 9-19")
+datadir=c("~kims/Google Drive File Stream/My Drive/methylation ampliseq bam files 12-19")
+writedatafn=c("~kims/GitHub/bsseq/data/cmethhaps/experimental-ctls")
+```
+
+
 Read in .bam filenames.
 ```{r bamfilenames}
-datadir=c("~kims/Google Drive File Stream/My Drive/methylation bam files 9-19")
 bamfiles=dir(datadir,pattern="*\\.bam$")
-bamfiles=file.path(datadir,bamfiles)
-whichbam <- 16
+#bamfiles=file.path(datadir,bamfiles)
+whichbam <- 1
 ```
 
 Shorten these filenames for Excel output.
 ```{r shortenfilenames}
 sslist <- strsplit(bamfiles,c("Galaxy"))
-nm <- map_chr(sslist, ~.x[1])  
-sslist <- strsplit(nm,c("5894_"))
-snm <- map_chr(sslist, ~.x[2]) 
+snm <- map_chr(sslist, ~.x[1])  
 ```
 
 Set flags for reading in the data.
@@ -124,7 +129,7 @@ Now run pipeline for a single sample.
 start_time <- Sys.time()
 
 #read bam
-gal <- readGAlignments(bamfiles[whichbam], use.names=TRUE, param=param1)
+gal <- readGAlignments(file.path(datadir,bamfiles)[whichbam], use.names=TRUE, param=param1)
  
 #initialize final haplotype matrix large enough to fit all haplotypes
 # max number of CpGs/amplicon is 19
@@ -179,7 +184,7 @@ sum(table(smat$amplicon))
 ```{r writefiles}
 tmat <- smat[!is.na(smat$chr),]
 snm2 <- paste(snm,"xlsx",sep=".")
-write_xlsx(tmat,file.path("data",snm2[whichbam]) )
+write_xlsx(tmat,file.path(writedatafn,snm2[whichbam]) )
 ```
 
 # Excel File created:
