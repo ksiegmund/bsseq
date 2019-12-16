@@ -19,6 +19,13 @@ library(writexl)
 load("data/targetgr.rda")
 ```
 
+Filenames for this processing run.
+```{r runnames}
+#datadir=c("~kims/Google Drive File Stream/My Drive/methylation bam files 9-19")
+datadir=c("~kims/Google Drive File Stream/My Drive/methylation ampliseq bam files 12-19")
+writedatafn=c("~kims/GitHub/bsseq/data/readDepth-38-amplicons-dec2019-experimental-controls.xlsx")
+```
+
 Now let's count reads that cover this region using: countOverlaps(galp,targetgr).
 
 # Darryl's BAMs:  
@@ -26,12 +33,10 @@ Now let's count reads that cover this region using: countOverlaps(galp,targetgr)
 Grab filenames.
 
 ```{r bamfilenames}
-datadir=c("~kims/Google Drive File Stream/My Drive/methylation bam files 9-19")
 bamfname=dir(datadir,pattern="*\\.bam$")
 bamfiles=file.path(datadir,bamfname)
 nbam <- length(bamfiles)
 ```
-
 
 Quick summary:
 ```{r bamfilesummary}
@@ -94,7 +99,8 @@ Combine 2 tables into a single file to export.
 readDepth <- rbind.DataFrame(cnts.df,overlaptable.df)
 readDepth <- cbind.data.frame(Summary = rownames(readDepth),
                              readDepth)
-write_xlsx(readDepth,path ="data/readDepth-38-amplicons.xlsx")
+#write_xlsx(readDepth,path ="data/readDepth-38-amplicons.xlsx")
+write_xlsx(readDepth,path = writedatafn)
 ```
 
 ```{r sI}
