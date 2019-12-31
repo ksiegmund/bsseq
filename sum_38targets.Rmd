@@ -27,13 +27,14 @@ targets <- targets[targets$chr!="Lambda",]
 WC_strand <- substr(targets$name,11,11)
 table(WC_strand)
 # replace strand with WC_strand
-targets$strand <- ifelse(WC_strand=="W","+","-")
-table(WC_strand,targets$strand)
+#targets$strand <- ifelse(WC_strand=="W","+","-")
+#table(WC_strand,targets$strand)
 
 ir <- IRanges(start=targets$start,
                 end=targets$end)
 targetgr <- GRanges(seqnames=targets$chr,strand=targets$strand,
                         ranges=ir)
+values(targetgr) <- DataFrame(WC_strand=WC_strand)
 save(targetgr,file="data/targetgr.rda")
 ```
 
