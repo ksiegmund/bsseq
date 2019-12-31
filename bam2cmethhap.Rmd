@@ -1,7 +1,7 @@
 ---
 title: "Call DNAm haplotypes"
 author: "Ks"
-date: "10/15/2019"
+date: '`r paste("First created on 10/15/2019. Updated on", Sys.Date())`'
 output: html_document
 ---
 
@@ -26,16 +26,17 @@ load("data/clipgrplus1.rda")
 
 Filenames for this processing run.
 ```{r runnames}
-#datadir=c("~kims/Google Drive File Stream/My Drive/methylation bam files 9-19")
-datadir=c("~kims/Google Drive File Stream/My Drive/methylation ampliseq bam files 12-19")
-writedatafn=c("~kims/GitHub/bsseq/data/cmethhaps/experimental-ctls")
+datadir=c("~kims/Google Drive File Stream/My Drive/methylation bam files 9-19")
+writedatafn=c("~kims/GitHub/newbsseq/data/cmethhaps/darrylsbamfiles9-19")
+
+#datadir=c("~kims/Google Drive File Stream/My Drive/methylation ampliseq bam files 12-19")
+#writedatafn=c("~kims/GitHub/newbsseq/data/cmethhaps/experimental-ctls")
 ```
 
 
 Read in .bam filenames.
 ```{r bamfilenames}
 bamfiles=dir(datadir,pattern="*\\.bam$")
-#bamfiles=file.path(datadir,bamfiles)
 whichbam <- 1
 ```
 
@@ -48,7 +49,7 @@ snm <- map_chr(sslist, ~.x[1])
 Set flags for reading in the data.
 ```{r readGAlign}
 flag1 <- scanBamFlag(isFirstMateRead=TRUE, isSecondMateRead=FALSE,
- isDuplicate=FALSE, isNotPassingQualityControls=FALSE)
+                      isDuplicate=FALSE, isNotPassingQualityControls=FALSE)
  param1 <- ScanBamParam(flag=flag1, what=c("seq","qual"))
 ```
 
@@ -73,9 +74,9 @@ clipreads <- function(reads_on_ref,startpos,region){
 }
 
 # turn nucleotide vector into pattern of 1/0 with 1 = methylated; 0 = unmethylated
-dnamhap <- function(seqvec,cpgpos,firstmatestrand){
+dnamhap <- function(seqvec,cpgpos,WCstrand){
           
-          if (firstmatestrand==c("+")) {
+          if (WCstrand==c("W")) {
               hapbase <- unlist(strsplit(toString(seqvec),split=""))[cpgpos]
               hapvec <- ifelse(hapbase=="C",1,ifelse(hapbase=="T",0,NA))
           }
@@ -88,15 +89,16 @@ dnamhap <- function(seqvec,cpgpos,firstmatestrand){
 
 # turn these into haplotypes
 gethaps <- function(clipgal,thisregion,cpgpos,regiongr,
-                    firstmatestrand=c("+"),maxcpg=19){
+                    WCstrand=c("W"),maxcpg=19){
   ncpg <- length(cpgpos)
   nreads <- length(clipgal)
   #pad matrix to length of longest c haplotype (19) (improve this later)
-  hapmat <- data.frame(matrix(NA,nrow=nreads,ncol=maxcpg))
+  hapmat <- data.frame(matrix(NA,nrow=nreads,ncol=ncpg))
   
-  haplst <- lapply(clipgal,dnamhap,cpgpos,firstmatestrand)
+  haplst <- lapply(clipgal,dnamhap,cpgpos,WCstrand)
   hapmtx <- matrix(unlist(haplst),byrow=T,ncol=ncpg)
   hapmat[,1:ncpg] <- hapmtx
+  colnames(hapmat) <- paste("X",1:ncpg,sep="")
    
   # remove haplotypes with missing data (I can't 'collapse' them)
   if (ncpg>1) {
@@ -130,18 +132,16 @@ start_time <- Sys.time()
 
 #read bam
 gal <- readGAlignments(file.path(datadir,bamfiles)[whichbam], use.names=TRUE, param=param1)
- 
-#initialize final haplotype matrix large enough to fit all haplotypes
-# max number of CpGs/amplicon is 19
-smat <- data.frame(matrix(rep(NA,25),ncol=25))
-colnames(smat) <- c("sample","amplicon","chr","start","readseq","htype",
-                    c(paste("X",1:19,sep="")))
-  
+
+# create empty list of data frames for each amplicon 
+my.names<-paste("amplicon",1:38,sep="")
+ldf <- setNames(replicate(38,data.frame()),my.names)
+
 #For each region do the following: 
 for (thisregion in 1:38) {
    #Subset to reads that cover single region.
   gal.sub <- readsonregion(gal,clipgrplus1[thisregion])
-    if(length(gal.sub)>0) {
+    if(length(gal.sub)>1) {  # require 2 read minimum to report haplotypes
       qseqs <- mcols(gal.sub)$seq
       # This is to get the sequences aligned to reference with D/Is
       qseq_on_ref <- sequenceLayer(qseqs, cigar(gal.sub))
@@ -150,20 +150,21 @@ for (thisregion in 1:38) {
 
       # I will pass strand information to gethaps so I 
       # know whether to adjust the C(pG) position to the (Cp)G position. 
-      # If - strand, then use G position; + strand uses C position.
+      # If C strand, then use G position; W strand uses C position.
       
       dmat <- gethaps(clipped.qseq,
                       thisregion,
                       cgposafterclip[[thisregion]],
                       clipgrplus1[thisregion],
-                firstmatestrand = as.character(runValue(strand(gal.sub[1]))))
-      smat <- rbind.data.frame(smat,dmat)
+                WCstrand = values(clipgrplus1)$WC_strand[thisregion])
+      ldf[[thisregion]] <- dmat    
     }
 }
 end_time <- Sys.time()
 
 end_time - start_time
 ```
+ 
  is the run time for sample 
 ```{r samplename}
 snm[whichbam]
@@ -173,18 +174,17 @@ snm[whichbam]
 
 Here's the read depth for each amplicon.
 ```{r amplicondepth}
-table(smat$amplicon)
+map_int(ldf,nrow)
 ```
 
 And total read depth:
 ```{r totreaddepth}
-sum(table(smat$amplicon))
+sum(map_int(ldf,nrow))
 ```
 
 ```{r writefiles}
-tmat <- smat[!is.na(smat$chr),]
 snm2 <- paste(snm,"xlsx",sep=".")
-write_xlsx(tmat,file.path(writedatafn,snm2[whichbam]) )
+write_xlsx(ldf,file.path(writedatafn,snm2[whichbam]) )
 ```
 
 # Excel File created:
