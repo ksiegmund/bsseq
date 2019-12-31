@@ -24,6 +24,12 @@ targets <- read.delim("data/Methylation_Panel_for_Cancer_Research.Designed.bed",
 colnames(targets) <- c("chr","start","end","unkn","score","strand","mis","name")
 targets <- targets[targets$chr!="Lambda",]
 
+WC_strand <- substr(targets$name,11,11)
+table(WC_strand)
+# replace strand with WC_strand
+targets$strand <- ifelse(WC_strand=="W","+","-")
+table(WC_strand,targets$strand)
+
 ir <- IRanges(start=targets$start,
                 end=targets$end)
 targetgr <- GRanges(seqnames=targets$chr,strand=targets$strand,
