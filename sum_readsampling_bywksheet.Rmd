@@ -1,0 +1,194 @@
+---
+title: "Summarize Data By ReadDepth"
+author: "Ks"
+date: '`r paste("First created on 10/30/2019. Updated on", Sys.Date())`'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Create Scatter Diagrams of Diversity measure vs Read Depth
+
+We're going to sample our reads to different depths, and measure diversity of the sampled reads. The two diversity measures we consider are (1) the number of unique haplotypes and (2) hamming distance. We then plot diversity measure vs read depth. We expect that the diversity will increase with read depth, reaching a plateau that captures the biological diversity in the sample.
+```{r libraries, message=FALSE}
+if(!require("readxl")) install.packages("readxl")
+library(tidyverse)
+library(readxl)
+library(ggplot2)
+```
+
+Read all Excel files into a list.
+```{r readxlsx}
+datadir=c("~kims/GitHub/newbsseq/data/cmethhaps/experimental-ctls")
+#datadir=c("~kims/GitHub/newbsseq/data/cmethhaps/exprmntl-ctls-filt")
+#datadir=c("~kims/GitHub/newbsseq/data/cmethhaps/darrylsfafiles9-19biscuit")
+
+xlsxfiles=dir(datadir,pattern="*\\.xlsx$")
+xlsxfiles
+
+load("~kims/GitHub/newbsseq/data/cgpos.rda")
+```
+
+Now I want to curate certain files for individual plots.
+```{r groupfiles}
+nm <- substr(xlsxfiles,1,3)
+set1 <- paste0(1:9,"_M")
+set1idx <- which(is.element(nm,set1))
+xlsxfiles[set1idx]
+```
+
+Here I can look at smaller sets of samples.  Set2 subsets on dish 1, passages 18, 70, 105.
+```{r gpsubsetfiles}
+#sname <- sub(".xlsx","",xlsxfiles[set1idx])
+#shname <- strsplit(sname,("[+]"))
+#sname <- map_chr(shname, ~.x[3])
+#getdishno <- strsplit(sname,("[_]"))
+#posdishno <- which(map_chr(getdishno, ~.x[2])==1)
+#sname <- factor(sname,levels=sname)[posdishno]
+
+#set2idx <- set1idx[posdishno]
+#xlsxfiles[set2idx]
+
+setidx <- set1idx
+#setidx <- set2idx
+#setidx <- c(2,3,1)
+xlsxfiles[setidx]
+```
+
+```{r hdfunction}
+avghamdist <- function(hapmatrix,nh){
+     nr <- length(nh)
+     # count number of hamdist of 0 for replicate haplotypes
+     npairssame <- map_dbl(nh,~choose(.x,2))
+     
+     hamdist <- dist(t(hapmatrix),method="manhattan")
+     # compute weights using replicates of each haplotype
+     distwgt <- NA
+     for (i in 1:(nr-1))  {
+            distwgt <- c(distwgt,nh[i]*nh[-(1:i)])      
+          }
+     distwgt <- distwgt[-1]
+     distwgt
+     hd <- sum(hamdist*distwgt)/(sum(distwgt)+sum(npairssame))
+     hd
+}
+```
+
+Here's the function that will sample the reads at different read depths, and compute diversity measures on each subsample. 
+```{r getdivmeasuresinsubsamples}
+# x is a vector of haplotypes
+# ssize is a vector of increasing readdepths
+sumssample <- function(x,ssize){
+      ns <- length(ssize)
+      uhap      <- rep(NA,ns)
+      avghd     <- rep(NA,ns)
+      for (i in 1:ns) {
+        # sample haplotypes  
+        sample.x <- 
+               x %>%
+                dplyr::sample_n(ssize[i])
+        # get number of unique haplotypes  
+        uhap[i]  <- 
+               sample.x %>%
+                dplyr::n_distinct()  
+             
+        # get counts of each unique haplotype
+        nhaps <- 
+            sample.x %>%
+              group_by(htype) %>%
+              dplyr::summarise(nhap = length(htype)) 
+        
+        # compute hamming distance
+       hapdf <- map_dfc(nhaps$htype,
+                       ~as.numeric(unlist(strsplit(.x,split=""))))
+       hapmat <- as.matrix(hapdf)
+       avghd[i] <- avghamdist(hapmat,nhaps$nhap)
+      }
+      ncpgs <- nrow(hapmat)
+      avghd <- avghd/ncpgs
+      sumstats <- bind_cols(uhap=uhap,avghd=avghd)
+}
+```
+ 
+Let's read in the data and summarize diversity for subsets of the data, looping over the amplicons.
+```{r analyzedata}
+#number of samples in this set
+nxlsx <- length(setidx)
+#sample name
+sname <- sub(".xlsx","",xlsxfiles[setidx])
+#shname <- strsplit(sname,("[+]"))
+#sname <- map_chr(shname, ~.x[3])
+sname <- factor(sname,levels=sname)
+
+#amplicon names (for Excel sheets)
+amplname <- paste0("amplicon",1:38)
+
+# prototype amplicon 1, then 1-2, then loop over all 38
+#an<-1
+#for (an in 1:2) {  #test on shorter list
+
+#amplicons without dropouts
+qampl <- c(1:7,12:31,33:37)
+#require > 4 CpGs for inclusion in haplotype diversity analysis
+qampl <- qampl[map_int(cgpos,length)[qampl]>4]
+
+
+#Loop over the amplicons, skipping dropouts
+for (an in qampl) {
+#for (an in 1:2) {
+
+#Create a list, each element is the list of haplotypes for one sample  
+  amplst <- vector(mode = "list", length = nxlsx)
+for (i in 1:nxlsx) {
+    amplst[[i]] <- read_excel(file.path(datadir,xlsxfiles[setidx[i]]),
+                            sheet = amplname[an])
+    amplst[[i]] <- amplst[[i]] %>%
+                    dplyr::select(htype)
+}
+
+# Summarize Read depth for each sample
+readdepth <- map_int(amplst,nrow)
+print(amplname[an])
+print("Total Read Depths")
+names(readdepth) <- sname
+print(readdepth)
+
+#Since each sample has a different read depth, we'll compute a sample-specific vector of sampled read depths using percentiles with a step-size of 5% (i.e. 10%, 15%, ...,100%).  
+depthlst <- vector(mode = "list", length = nxlsx)
+rpct <- seq(0.1:1,by=0.05)
+for (i in 1:nxlsx)   depthlst[[i]] <- floor(readdepth[i]*rpct)
+#for (i  in  1:nxlsx) depthlst[[i]] <- c(10, 20, 30)
+#print("(Quantiles of) Read Depths, in step-sizes of 5%")
+#print(depthlst)
+
+# Compute No. of unique haplotypes for randomly sampled subsets of size depthlst
+set.seed(32)
+slst <- map2_dfr(amplst,depthlst,~sumssample(.x,.y))
+
+#Now let's plot it.   
+sumdat <- bind_cols(uhap = slst$uhap,
+                    avghd = slst$avghd,
+                    depth = unlist(depthlst),
+                    samplename = rep(sname,each=length(depthlst[[1]])))
+
+par(mfrow=c(1,2))
+p1 <- 
+  ggplot(sumdat, aes(depth,uhap,colour = samplename)) +
+  geom_line(aes(linetype = samplename)) +
+  labs(title = paste0(amplname[an],",  ",length(cgpos[[an]])," CpGs"), 
+       x = "read depth", y = "# unique haplotypes")
+plot(p1)
+p2 <- 
+  ggplot(sumdat, aes(depth,avghd,colour = samplename)) +
+  geom_line(aes(linetype = samplename)) +
+  labs(title = paste0(amplname[an],",  ",length(cgpos[[an]])," CpGs"), 
+       x = "read depth", y = "Avg Hamming Distance")
+plot(p2)
+}
+```
+
+```{r sessionInfo}
+sessionInfo()
+```
