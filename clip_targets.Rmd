@@ -52,6 +52,7 @@ cgposafterclip[1:3]
 
 Save these results for calling DNA methylation haplotypes. Save the trailing G position because the minus strand-first mate in pair reads will need to be reverse engineered.
 ```{r saveme}
+seqlevels(clipgrplus1) <- unique(as.vector(seqnames(clipgrplus1)))
 save(clipgrplus1,file="data/clipgrplus1.rda")
 save(cgposafterclip,file="data/cgposafterclip.rda")
 ```
