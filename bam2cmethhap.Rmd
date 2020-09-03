@@ -45,11 +45,10 @@ datadir=c("~kims/Google Drive File Stream/My Drive/shibata/GalaxyBSbam_6284_6_20
 writedatafn=c("~kims/GitHub/runbsseq/data/cmethhaps/20200620")
 ```
 
-
 Read in .bam filenames.
 ```{r bamfilenames}
 bamfiles=dir(datadir,pattern="*\\.bam$")
-whichbam <- 51
+whichbam <- 55
 ```
 
 Shorten these filenames for Excel output.
@@ -145,20 +144,18 @@ gethaps <- function(clipgal,thisregion,cpgpos,regiongr,
 
 # DNAm haplotype Pipeline
 
-Now run pipeline for a single sample.  Sorted Bam file + index get saved to a new directory. (need to create the directory)
+Now run pipeline for a single sample.  Sorted Bam file + index get saved to local directory. They are deleted after C-methylation haplotype calling. 
 ```{r sort-index-bam}
 start_time <- Sys.time()
 
 sortBam(file.path(datadir,bamfiles)[whichbam],
-        file.path("data/sortedbams",
-                  paste(snm[whichbam],"sorted",sep=".")))
-indexBam(file.path("data/sortedbams",
-                   paste(snm[whichbam],"sorted.bam",sep=".")))
+        paste(snm[whichbam],"sorted",sep="."))
+indexBam(paste(snm[whichbam],"sorted.bam",sep="."))
 ```
  
 ```{r read-bam} 
-gal <- readGAlignments(file.path("data/sortedbams",
-              paste(snm[whichbam],"sorted.bam",sep=".")), use.names=TRUE, param=param1)
+gal <- readGAlignments(paste(snm[whichbam],"sorted.bam",sep="."),
+              use.names=TRUE, param=param1)
 print(paste("# reads input (mapqscore>30 & overlap regions):", length(gal)))
 ```
 
@@ -215,6 +212,9 @@ sum(map_int(ldf,nrow))
 ```{r writefiles}
 snm2 <- paste(snm,"xlsx",sep=".")
 write_xlsx(ldf,file.path(writedatafn,snm2[whichbam]) )
+
+file.remove(paste(snm[whichbam],"sorted.bam",sep="."))
+file.remove(paste(snm[whichbam],"sorted.bam.bai",sep="."))
 ```
 
 # Excel File created:
