@@ -24,20 +24,32 @@ load("data/cgposafterclip.rda")
 load("data/clipgrplus1.rda")
 ```
 
+Write the clipped target regions to a bed file that I can use for filtering my *.bam files.  The read must cover this entire region for me to read it into memory.
+```{r writebed}
+bedfl <- cbind.data.frame(seqnames(clipgrplus1),start(clipgrplus1),end(clipgrplus1))
+bedfl
+write.table(bedfl,file="data/clipgrplus1.bed",sep = "\t",
+            row.names = FALSE, col.names = FALSE, quote = FALSE)
+```
+
+
 Filenames for this processing run.
 ```{r runnames}
-datadir=c("~kims/Google Drive File Stream/My Drive/methylation bam files 9-19")
-writedatafn=c("~kims/GitHub/newbsseq/data/cmethhaps/darrylsbamfiles9-19")
+#datadir=c("~kims/Google Drive File Stream/My Drive/shibata/methylation bam files 9-19")
+#writedatafn=c("~kims/GitHub/runbsseq/data/cmethhaps/darrylsbamfiles9-19")
 
 #datadir=c("~kims/Google Drive File Stream/My Drive/methylation ampliseq bam files 12-19")
 #writedatafn=c("~kims/GitHub/newbsseq/data/cmethhaps/experimental-ctls")
+
+datadir=c("~kims/Google Drive File Stream/My Drive/shibata/GalaxyBSbam_6284_6_20")
+writedatafn=c("~kims/GitHub/runbsseq/data/cmethhaps/20200620")
 ```
 
 
 Read in .bam filenames.
 ```{r bamfilenames}
 bamfiles=dir(datadir,pattern="*\\.bam$")
-whichbam <- 1
+whichbam <- 51
 ```
 
 Shorten these filenames for Excel output.
@@ -46,11 +58,18 @@ sslist <- strsplit(bamfiles,c("Galaxy"))
 snm <- map_chr(sslist, ~.x[1])  
 ```
 
-Set flags for reading in the data.
+Set flags for reading in the data. I will require the mapping quality score is 30 or better.
 ```{r readGAlign}
+#flag0 <- scanBamFlag(isFirstMateRead=TRUE, isSecondMateRead=FALSE,
+#                      isDuplicate=FALSE, #isNotPassingQualityControls=FALSE)
+#param0 <- ScanBamParam(flag=flag0, what=c("seq","qual"))
+
 flag1 <- scanBamFlag(isFirstMateRead=TRUE, isSecondMateRead=FALSE,
-                      isDuplicate=FALSE, isNotPassingQualityControls=FALSE)
- param1 <- ScanBamParam(flag=flag1, what=c("seq","qual"))
+                    isUnmappedQuery=FALSE,isSecondaryAlignment=FALSE,
+                    isProperPair=TRUE,isSupplementaryAlignment=FALSE,
+                    isNotPassingQualityControls=FALSE)
+param1 <- ScanBamParam(which = clipgrplus1,flag=flag1, mapqFilter = 30,
+                        what=c("seq","qual"))
 ```
 
 ```{r functions}
@@ -126,13 +145,24 @@ gethaps <- function(clipgal,thisregion,cpgpos,regiongr,
 
 # DNAm haplotype Pipeline
 
-Now run pipeline for a single sample.  
-```{r pipeline}
+Now run pipeline for a single sample.  Sorted Bam file + index get saved to a new directory. (need to create the directory)
+```{r sort-index-bam}
 start_time <- Sys.time()
 
-#read bam
-gal <- readGAlignments(file.path(datadir,bamfiles)[whichbam], use.names=TRUE, param=param1)
+sortBam(file.path(datadir,bamfiles)[whichbam],
+        file.path("data/sortedbams",
+                  paste(snm[whichbam],"sorted",sep=".")))
+indexBam(file.path("data/sortedbams",
+                   paste(snm[whichbam],"sorted.bam",sep=".")))
+```
+ 
+```{r read-bam} 
+gal <- readGAlignments(file.path("data/sortedbams",
+              paste(snm[whichbam],"sorted.bam",sep=".")), use.names=TRUE, param=param1)
+print(paste("# reads input (mapqscore>30 & overlap regions):", length(gal)))
+```
 
+```{r run-pipeline}
 # create empty list of data frames for each amplicon 
 my.names<-paste("amplicon",1:38,sep="")
 ldf <- setNames(replicate(38,data.frame()),my.names)
