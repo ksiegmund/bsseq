@@ -21,22 +21,23 @@ library(ggplot2)
 
 Read all Excel files into a list.
 ```{r readxlsx}
-datadir=c("~kims/GitHub/newbsseq/data/cmethhaps/experimental-ctls")
+#datadir=c("~kims/GitHub/newbsseq/data/cmethhaps/experimental-ctls")
+datadir=c("~kims/GitHub/runbsseq/data/cmethhaps/20200620")
 #datadir=c("~kims/GitHub/newbsseq/data/cmethhaps/exprmntl-ctls-filt")
 #datadir=c("~kims/GitHub/newbsseq/data/cmethhaps/darrylsfafiles9-19biscuit")
 
 xlsxfiles=dir(datadir,pattern="*\\.xlsx$")
 xlsxfiles
 
-load("~kims/GitHub/newbsseq/data/cgpos.rda")
+load("~kims/GitHub/runbsseq/data/cgpos.rda")
 ```
 
 Now I want to curate certain files for individual plots.
 ```{r groupfiles}
-nm <- substr(xlsxfiles,1,3)
-set1 <- paste0(1:9,"_M")
-set1idx <- which(is.element(nm,set1))
-xlsxfiles[set1idx]
+#nm <- substr(xlsxfiles,1,3)
+#set1 <- paste0(1:9,"_M")
+#set1idx <- which(is.element(nm,set1))
+#xlsxfiles[set1idx]
 ```
 
 Here I can look at smaller sets of samples.  Set2 subsets on dish 1, passages 18, 70, 105.
@@ -51,9 +52,10 @@ Here I can look at smaller sets of samples.  Set2 subsets on dish 1, passages 18
 #set2idx <- set1idx[posdishno]
 #xlsxfiles[set2idx]
 
-setidx <- set1idx
+#setidx <- set1idx
 #setidx <- set2idx
 #setidx <- c(2,3,1)
+setidx <- c(1,2,3)
 xlsxfiles[setidx]
 ```
 
@@ -98,9 +100,10 @@ sumssample <- function(x,ssize){
         nhaps <- 
             sample.x %>%
               group_by(htype) %>%
-              dplyr::summarise(nhap = length(htype)) 
+              dplyr::summarise(nhap = length(htype),.groups="keep") 
         
         # compute hamming distance
+        names(nhaps$htype)  <- paste0("v",c(1:length(nhaps$htype)))
        hapdf <- map_dfc(nhaps$htype,
                        ~as.numeric(unlist(strsplit(.x,split=""))))
        hapmat <- as.matrix(hapdf)
@@ -141,6 +144,7 @@ for (an in qampl) {
 
 #Create a list, each element is the list of haplotypes for one sample  
   amplst <- vector(mode = "list", length = nxlsx)
+  names(amplst) <- sname
 for (i in 1:nxlsx) {
     amplst[[i]] <- read_excel(file.path(datadir,xlsxfiles[setidx[i]]),
                             sheet = amplname[an])
@@ -184,7 +188,8 @@ p2 <-
   ggplot(sumdat, aes(depth,avghd,colour = samplename)) +
   geom_line(aes(linetype = samplename)) +
   labs(title = paste0(amplname[an],",  ",length(cgpos[[an]])," CpGs"), 
-       x = "read depth", y = "Avg Hamming Distance")
+       x = "read depth", y = "Avg Hamming Distance") +
+    ylim(0,0.5)
 plot(p2)
 }
 ```
