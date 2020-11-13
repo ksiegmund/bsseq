@@ -63,9 +63,6 @@ chartable <- cbind.data.frame(region = 1:38,
                   end = end(ranges(targetgr)),
                   width = width(ranges(targetgr)),
                   nCpGs = dinucleotideFrequency(targetseqsplus1)[,'CG'],
-                  nCpCs = dinucleotideFrequency(targetseqsplus1)[,'CC'],
-                  nCpTs = dinucleotideFrequency(targetseqsplus1)[,'CT'],
-                  nCpAs = dinucleotideFrequency(targetseqsplus1)[,'CA'],
                   gcratio = round(gcratio*100,1),
                   ampliconseq = targetseqs,
                   info = str_trim(targets$name)
@@ -92,51 +89,41 @@ for (i in 1:38)
 save(cgpos,file="data/cgpos.rda")
 ```
 
-# 4. Find the positions of CpAs, CpCs, CpTs in each amplicon
+# 4. Find the positions of CpHs in each amplicon
 
 I'll save these to a list object for later use.
 ```{r chfind}
-capos <- vector(mode = "list", length = 38)
+Ws <- which(values(targetgrplus1)$WC_strand=="W")
+Cs <- which(values(targetgrplus1)$WC_strand=="C")
+
+# These I use for clipping and I apply this to all targets, both W and C.
+cposWS <- vector(mode = "list", length = 38)
 for (i in 1:38) 
   {ts <- targetseqsplus1[i]
   dn <- BStringSet(toString(ts), end=2:width(ts), width=2)
-  capos[[i]] <- which(dn=="CA")
+  cposWS[[i]] <- c(which(dn=="CA"),which(dn=="CC"),which(dn=="CT"),which(dn=="CG"))
+  cposWS[[i]] <- sort(cposWS[[i]])
 }
 
-ccpos <- vector(mode = "list", length = 38)
-for (i in 1:38) 
-  {ts <- targetseqsplus1[i]
+chposWS <- vector(mode = "list", length = length(Ws))
+for (i in 1:length(Ws)) 
+  {ts <- targetseqsplus1[Ws[i]]
   dn <- BStringSet(toString(ts), end=2:width(ts), width=2)
-  ccpos[[i]] <- which(dn=="CC")
+  chposWS[[i]] <- c(which(dn=="CA"),which(dn=="CC"),which(dn=="CT"))
+  chposWS[[i]] <- sort(chposWS[[i]])
 }
 
-ctpos <- vector(mode = "list", length = 38)
-for (i in 1:38) 
-  {ts <- targetseqsplus1[i]
+chposCS <- vector(mode = "list", length = length(Cs))
+for (i in 1:length(Cs)) 
+  {ts <- targetseqsplus1[Cs[i]]
   dn <- BStringSet(toString(ts), end=2:width(ts), width=2)
-  ctpos[[i]] <- which(dn=="CT")
+  chposCS[[i]] <- c(which(dn=="AG"),which(dn=="GG"),which(dn=="TG")) + 1
+  chposCS[[i]] <- sort(as.integer(chposCS[[i]]))
 }
 
-chpos <- vector(mode = "list", length = 38)
-for (i in 1:38) 
-  {ts <- targetseqsplus1[i]
-  dn <- BStringSet(toString(ts), end=2:width(ts), width=2)
-  chpos[[i]] <- c(which(dn=="CA"),which(dn=="CC"),which(dn=="CT"))
-  chpos[[i]] <- sort(chpos[[i]])
-}
-
-cpos <- vector(mode = "list", length = 38)
-for (i in 1:38) 
-  {ts <- targetseqsplus1[i]
-  dn <- BStringSet(toString(ts), end=2:width(ts), width=2)
-  cpos[[i]] <- c(which(dn=="CA"),which(dn=="CC"),which(dn=="CT"),which(dn=="CG"))
-  cpos[[i]] <- sort(cpos[[i]])
-}
-
-
-cxpos <- list(cpos,chpos,cgpos,capos,ccpos,ctpos)
-names(cxpos) <- c("cpos","chpos","cgpos","capos","ccpos","ctpos")
-rm(cpos,chpos,cgpos,ccpos,capos,ctpos)
+cxpos <- list(cgpos,cposWS,chposWS,chposCS)
+names(cxpos) <- c("cgpos","cposWS","chposWS","chposCS")
+rm(cgpos,cposWS,chposWS,chposCS)
 save(cxpos,file="data/cxpos.rda")
 ```
 
