@@ -9,6 +9,8 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+Revised 11/13/2020 to filter out reads with non-converted Cs.
+
 Load Libraries:
 ```{r libraries, message=FALSE}
 library(GenomicAlignments)
@@ -20,7 +22,9 @@ library(writexl)
 
 Load target regions, sequences and CpG positions:
 ```{r readcgpositions}
-load("data/cgposafterclip.rda")
+load("data/cgposWSafterclip.rda")
+load("data/chposWSafterclip.rda")
+load("data/chposCSafterclip.rda")
 load("data/clipgrplus1.rda")
 ```
 
@@ -71,6 +75,7 @@ param1 <- ScanBamParam(which = clipgrplus1,flag=flag1, mapqFilter = 30,
                         what=c("seq","qual"))
 ```
 
+
 ```{r functions}
 # subset gal object to reads covering region
 readsonregion <- function(gaobj,region) {
@@ -78,9 +83,9 @@ readsonregion <- function(gaobj,region) {
                           minoverlap=width(region))
     gal.subset <- gal[queryHits(r1)]
     gal.subset
-}    
+}
 
-# clip all the reads to the size of my target (1st to last C(pG)).
+# clip all the reads to the size of my target (1st to last C).
 clipreads <- function(reads_on_ref,startpos,region){
   
     clipped.start <- start(region) - startpos + 1
@@ -92,53 +97,66 @@ clipreads <- function(reads_on_ref,startpos,region){
 }
 
 # turn nucleotide vector into pattern of 1/0 with 1 = methylated; 0 = unmethylated
-dnamhap <- function(seqvec,cpgpos,WCstrand){
-          
-          if (WCstrand==c("W")) {
-              hapbase <- unlist(strsplit(toString(seqvec),split=""))[cpgpos]
-              hapvec <- ifelse(hapbase=="C",1,ifelse(hapbase=="T",0,NA))
-          }
-          else {
-              hapbase <- unlist(strsplit(toString(seqvec),split=""))[cpgpos+1]
-              hapvec <- ifelse(hapbase=="G",1,ifelse(hapbase=="A",0,NA))
-          }
-  hapvec
+# fnc for the Watson strand (Ws)
+biscWs <- function(seqvec,cpxpos){
+          hapbase <- unlist(strsplit(toString(seqvec),split=""))[cpxpos]
+          hapvec <- ifelse(hapbase=="C",1,ifelse(hapbase=="T",0,NA))
+          hapvec
+}
+# fnc for the Crick strand (Cs)
+biscCs <- function(seqvec,cpxpos){
+          hapbase <- unlist(strsplit(toString(seqvec),split=""))[cpxpos]
+          hapvec <- ifelse(hapbase=="G",1,ifelse(hapbase=="A",0,NA))
+          hapvec
 }
 
-# turn these into haplotypes
+# turn these into haplotypes 
 gethaps <- function(clipgal,thisregion,cpgpos,regiongr,
-                    WCstrand=c("W"),maxcpg=19){
-  ncpg <- length(cpgpos)
+                    dnamhap){
   nreads <- length(clipgal)
-  #pad matrix to length of longest c haplotype (19) (improve this later)
-  hapmat <- data.frame(matrix(NA,nrow=nreads,ncol=ncpg))
+  ncpg <- length(cpgpos)
+  haplst <- lapply(clipgal,dnamhap,cpgpos)
   
-  haplst <- lapply(clipgal,dnamhap,cpgpos,WCstrand)
+  hapmat <- data.frame(matrix(NA,nrow=nreads,ncol=ncpg))
   hapmtx <- matrix(unlist(haplst),byrow=T,ncol=ncpg)
   hapmat[,1:ncpg] <- hapmtx
   colnames(hapmat) <- paste("X",1:ncpg,sep="")
    
-  # remove haplotypes with missing data (I can't 'collapse' them)
-  if (ncpg>1) {
-    filt <- which( apply(is.na(hapmat[,c(1:ncpg)]),1,sum) > 0)
-    if (length(filt)>0)
-      hapmat <- hapmat[-filt,]
-      htype <- apply(hapmat[,(1:ncpg)],1,paste,collapse="")
-  }
-  else {
-    filt <- which(is.na(hapmat[,1]))
-    if (length(filt)>0)
-      hapmat <- hapmat[-filt,]
-    htype <- as.character(hapmat[,1])
-  }
   datmat <- cbind.data.frame(sample = snm[whichbam],
                              amplicon = thisregion,
                       chr = seqnames(regiongr),
                       start = start(regiongr),
                       readseq = 1:nrow(hapmat),
-                      htype = htype,
-                      hapmat)
+                      naCpG = rowSums(is.na(hapmat)),
+                      hapmat
+                      )
   datmat
+}
+```
+
+
+```{r bis-non-conversion-functions}
+# these are now redundant --test that I can delete them
+# call non-converted CpHs in Watson strand
+#nccWs <- function(seqvec,cphpos){
+#              hapbase <- unlist(strsplit(toString(seqvec),split=""))[cphpos]
+#              hapvec <- ifelse(hapbase=="C",1,ifelse(hapbase=="T",0,NA))
+#              hapvec
+#}
+# call non-converted CpHs in Crick strand
+#nccCs <- function(seqvec,cphpos) {
+#              hapbase <- unlist(strsplit(toString(seqvec),split=""))[cphpos]
+#              hapvec <- ifelse(hapbase=="G",1,ifelse(hapbase=="A",0,NA))
+#              hapvec
+#}
+
+# For each read, call the non-converted CpHs
+ncreads <- function(clipgal,cphpos,nccs){
+  ncph <- length(cphpos)
+  nreads <- length(clipgal)
+  
+  haplst <- lapply(clipgal,nccs,cphpos)
+  haplst
 }
 ```
 
@@ -159,10 +177,56 @@ gal <- readGAlignments(paste(snm[whichbam],"sorted.bam",sep="."),
 print(paste("# reads input (mapqscore>30 & overlap regions):", length(gal)))
 ```
 
-```{r run-pipeline}
+
+```{r count-noncovertedCs, include=FALSE}
+#  This chunk is for testing only
+#Ws <- which(values(clipgrplus1)$WC_strand=="W")
+#For each region do the following: 
+
+#thisregion <- 2
+   #Subset to reads that cover single region.
+#  gal.sub <- readsonregion(gal,clipgrplus1[thisregion])
+#  if(length(gal.sub)>1) {  # require 2 read minimum to report haplotypes
+#      qseqs <- mcols(gal.sub)$seq
+      # This is to get the sequences aligned to reference with D/Is
+#      qseq_on_ref <- sequenceLayer(qseqs, cigar(gal.sub))
+#      clipped.qseq <- clipreads(qseq_on_ref,start(gal.sub),
+ #                             clipgrplus1[thisregion])
+
+      # I will pass strand information to gethaps so I 
+      # know whether to adjust the C(pH) position to the (Cp)H position. 
+      # If C strand, then use H position; W strand uses C position.
+#      i <- match(thisregion,Ws,nomatch=0)
+#      if (i) { nccslist <- ncreads(clipped.qseq,
+ #                         chposWSafterclip[[i]],
+#                          nccWs)
+#      }  else {
+#          i <- match(thisregion,Cs)
+#          nccslist <- ncreads(clipped.qseq,
+#                          chposCSafterclip[[i]] ,
+#                          nccCs)
+#      }
+      # summarize output then add filter later.
+#       ncsum  <- cbind.data.frame(numnc = unlist(lapply(nccslist,sum)), ncph = unlist(lapply(nccslist,length)) )
+#       print(paste("Region",thisregion,":"))
+#       print(table(ncsum$numnc,useNA="ifany"))
+       
+#       print(sum(table(ncsum$numnc,useNA="ifany")))
+#       print(length(clipped.qseq))
+```
+
+Analysis in 3 steps:  
+Step 1. Call the Cs  as 1/0 (1 = not-converted; 0 = converted)
+Step 2. Summarize Quality of bisulfite conversion/C sequencing errors
+Step 3. Filter and create haplotype patterns  
+```{r call-Cs}
 # create empty list of data frames for each amplicon 
 my.names<-paste("amplicon",1:38,sep="")
 ldf <- setNames(replicate(38,data.frame()),my.names)
+
+# amplicon is on which strand? Watson or Crick
+Ws <- which(values(clipgrplus1)$WC_strand=="W")
+Cs <- which(values(clipgrplus1)$WC_strand=="C")
 
 #For each region do the following: 
 for (thisregion in 1:38) {
@@ -175,24 +239,102 @@ for (thisregion in 1:38) {
       clipped.qseq <- clipreads(qseq_on_ref,start(gal.sub),
                               clipgrplus1[thisregion])
 
-      # I will pass strand information to gethaps so I 
+      # I first need to know what strand the amplicon is on to 
       # know whether to adjust the C(pG) position to the (Cp)G position. 
       # If C strand, then use G position; W strand uses C position.
       
-      dmat <- gethaps(clipped.qseq,
+      i <- match(thisregion,Ws,nomatch=0)
+      if (i) { #first call non-converted Cs as 1=nonconverted; 0=converted
+              nccslist <- ncreads(clipped.qseq,
+                          chposWSafterclip[[i]],
+                          biscWs)
+               #then record CpG methylation as 1/0
+               dmat <- gethaps(clipped.qseq,
                       thisregion,
-                      cgposafterclip[[thisregion]],
+                      cgposWSafterclip[[thisregion]],
                       clipgrplus1[thisregion],
-                WCstrand = values(clipgrplus1)$WC_strand[thisregion])
-      ldf[[thisregion]] <- dmat    
+                      biscWs)
+      }  else {
+          i <- match(thisregion,Cs)
+          nccslist <- ncreads(clipped.qseq,
+                          chposCSafterclip[[i]],
+                          biscCs)
+          dmat <- gethaps(clipped.qseq,
+                      thisregion,
+                      as.integer(cgposWSafterclip[[thisregion]]+1),
+                      clipgrplus1[thisregion],
+                      biscCs)
+      }
+      #  count the number of non-converted Cs in each read
+       ncsum  <- cbind.data.frame(numnc = unlist(lapply(nccslist,sum)), 
+                                  ncph = unlist(lapply(nccslist,length)) )
+       
+      ldf[[thisregion]] <- cbind.data.frame(ncsum,dmat)    
     }
 }
-end_time <- Sys.time()
 
+```
+
+Now report on QC of the individual reads by Amplicon:
+
+```{r summarize-quality-then-filter}
+numberreadsonregion <- sum(map_int(ldf,nrow))
+print(paste("Total number of Reads:",numberreadsonregion))
+
+qcmat <- matrix(rep(NA,4*38),ncol=4)
+rownames(qcmat) <- paste0("amplicon",1:38)
+colnames(qcmat) <- c("NumReads","NumNCReads","NumSeqErCpGReads","FractFilt")
+for (i in  1:38) {
+    dmat <- ldf[[i]]
+    print(paste("Region",i,":"))
+    print("Non-converted Cs:    (NA is sequencing error)")
+    print(table(dmat$numnc,useNA="ifany"))
+    ncreads <- ifelse(is.na(dmat$numnc) | (dmat$numnc > 0),1,0)
+    ncpgseqerr <- ifelse( dmat$naCpG  > 0, 1, 0)
+    qcmat[i,"NumReads"] <- nrow(dmat)
+    qcmat[i,"NumNCReads"] <- sum(ncreads)
+    qcmat[i,"NumSeqErCpGReads"] <- sum(ncpgseqerr)
+    frfilt <- sum(ifelse((ncreads + ncpgseqerr) > 0,1,0))/qcmat[i,"NumReads"]
+    qcmat[i,"FractFilt"] <- round(frfilt,3)
+}
+print(qcmat)
+```
+
+Step 3: Remove reads with non-converted Cs or sequencing errors, summarize once more, and write to datafile.
+
+```{r filter-reads}
+
+for (i in  1:38) { 
+  dmat <- ldf[[i]]
+  
+  # filter on non-converted reads and reads with sequencing error (missing data) at CpGs 
+  if (nrow(dmat)>1) {   # need more than 1 read to measure hamming distance
+      dmat <- dmat %>%
+            filter(!is.na(numnc) & numnc == 0 & naCpG==0)
+  
+      if (nrow(dmat)>1) { # need more than 1 read to measure hamming distance
+          # Remove the first 8 columns and create htype
+          hapmat <- dmat[,-c(1:8)]
+          ncpg <- ncol(hapmat)
+  
+          if (ncpg>1) {
+             htype <- apply(hapmat[,(1:ncpg)],1,paste,collapse="")
+          } else {
+             htype <- as.character(hapmat[,1])
+          }
+          datmat <- cbind.data.frame(dmat[,c(1:8)],
+                                      htype = htype,
+                                      hapmat)
+          ldf[[i]] <- datmat
+      }
+  }  
+}
+
+end_time <- Sys.time()
 end_time - start_time
 ```
- 
- is the run time for sample 
+
+is the run time for sample 
 ```{r samplename}
 snm[whichbam]
 ```
@@ -207,6 +349,11 @@ map_int(ldf,nrow)
 And total read depth:
 ```{r totreaddepth}
 sum(map_int(ldf,nrow))
+```
+
+And the fraction of mapped reads we retained:
+```{r fractionreadsretained}
+sum(map_int(ldf,nrow))/numberreadsonregion
 ```
 
 ```{r writefiles}
